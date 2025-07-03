@@ -1,0 +1,20 @@
+import nidaqmx
+
+canales_con_datos = []
+
+with nidaqmx.Task() as task:
+    for i in range(80):
+        canal = f"Dev2/ai{i}"
+        try:
+            task.ai_channels.add_ai_voltage_chan(canal, min_val=-1.0, max_val=1.0)
+            valor = task.read()
+            task.ai_channels.clear()  # limpiar para el siguiente
+            print(f"Canal {canal}: {valor:.6f} V")
+            if abs(valor) > 0.005:  # más de 5 mV → podría ser señal
+                canales_con_datos.append((canal, valor))
+        except Exception as e:
+            print(f"Canal {canal}: error -> {e}")
+
+print("\n🔍 Posibles canales conectados con señal:")
+for canal, valor in canales_con_datos:
+    print(f"  {canal} -> {valor:.6f} V")

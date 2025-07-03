@@ -1,21 +1,28 @@
 import nidaqmx
+import numpy as np
 
 canales_con_datos = []
+
+print("🔍 Escaneando canales con promedio y desviación...")
 
 for i in range(80):
     canal = f"Dev2/ai{i}"
     try:
         with nidaqmx.Task() as task:
-            task.ai_channels.add_ai_voltage_chan(canal, min_val=-1.0, max_val=1.0)
-            valor = task.read()
-            if isinstance(valor, list):
-                valor = valor[0]  # Siempre obtener un escalar
-            print(f"Canal {canal}: {valor:.6f} V")
-            if abs(valor) > 0.005:
-                canales_con_datos.append((canal, valor))
-    except Exception as e:
-        print(f"Canal {canal}: error -> {e}")
+            task.ai_channels.add_ai_voltage_chan(canal, min_val=-0.01, max_val=0.05)
+            lecturas = [task.read() for _ in range(10)]
+            # Forzar escalar
+            lecturas = [v[0] if isinstance(v, list) else v for v in lecturas]
+            promedio = np.mean(lecturas)
+            desviacion = np.std(lecturas)
 
-print("\n🔍 Posibles canales conectados con señal:")
+            print(f"{canal}: {promedio:.6f} V (σ = {desviacion:.6f})")
+
+            if abs(promedio) > 0.0015 and desviacion < 0.0015:
+                canales_con_datos.append((canal, promedio))
+    except Exception as e:
+        print(f"{canal}: error -> {e}")
+
+print("\n✅ Canales activos detectados:")
 for canal, valor in canales_con_datos:
     print(f"  {canal} -> {valor:.6f} V")

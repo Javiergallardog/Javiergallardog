@@ -1,0 +1,87 @@
+import nidaqmx
+import time
+import csv
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+# === Conversión mV → °C para termocupla tipo K (NIST, 0-500°C) ===
+def voltaje_mV_a_temp_K(v_mv):
+    coeffs = [0.0, 2.508355e1, 7.860106e-2, -2.503131e-1,
+              8.315270e-2, -1.228034e-2, 9.804036e-4,
+              -4.413030e-5, 1.057734e-6, -1.052755e-8]
+    return sum(c * v_mv**i for i, c in enumerate(coeffs))
+
+# === CONFIGURACIÓN GENERAL ===
+NOMBRE_DISPOSITIVO = "Dev2"
+CANALES = ["ai0", "ai1"]   # Ajusta a tus entradas conectadas
+FS = 2                     # Frecuencia de muestreo (Hz)
+DURACION = 30              # Duración total (segundos)
+ARCHIVO = f"temperaturas_K_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+# === Inicialización ===
+tiempos = []
+temperaturas = [[] for _ in CANALES]
+
+# CSV inicial
+with open(ARCHIVO, mode='w', newline='') as f:
+    writer = csv.writer(f)
+    writer.writerow(["Tiempo (s)"] + [f"{canal} (°C)" for canal in CANALES])
+
+# Gráfico
+plt.ion()
+fig, ax = plt.subplots()
+lineas = [ax.plot([], [], label=canal)[0] for canal in CANALES]
+ax.set_xlabel("Tiempo (s)")
+ax.set_ylabel("Temperatura (°C)")
+ax.set_title("Lectura en vivo - Termocuplas tipo K")
+ax.grid(True)
+ax.legend()
+
+# === Adquisición ===
+with nidaqmx.Task() as task:
+    for canal in CANALES:
+        task.ai_channels.add_ai_voltage_chan(
+            physical_channel=f"{NOMBRE_DISPOSITIVO}/{canal}",
+            min_val=-0.01, max_val=0.05
+        )
+
+    # Configuración de muestreo explícita (opcional pero recomendable)
+    task.timing.cfg_samp_clk_timing(
+        rate=FS,
+        sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS,
+        samps_per_chan=1
+    )
+
+    t0 = time.time()
+    while (time.time() - t0) < DURACION:
+        t_actual = time.time() - t0
+        voltajes = task.read(number_of_samples_per_channel=1)
+
+        # Asegurar que voltajes sea lista
+        if isinstance(voltajes, float):
+            voltajes = [voltajes]
+
+        # Convertir a temperaturas
+        temps = [voltaje_mV_a_temp_K(v * 1000) for v in voltajes]
+
+        tiempos.append(t_actual)
+        for i, temp in enumerate(temps):
+            temperaturas[i].append(temp)
+
+        # Guardar en CSV
+        with open(ARCHIVO, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([t_actual] + temps)
+
+        # Actualizar gráfico
+        for i, linea in enumerate(lineas):
+            linea.set_data(tiempos, temperaturas[i])
+
+        ax.relim()
+        ax.autoscale_view()
+        plt.pause(0.01)
+        time.sleep(1 / FS)
+
+plt.ioff()
+plt.show()
+print(f"\n✅ Adquisición finalizada.\n📁 Archivo guardado: {ARCHIVO}")
